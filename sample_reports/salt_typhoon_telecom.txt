@@ -1,0 +1,130 @@
+THREAT INTELLIGENCE REPORT — Salt Typhoon (Earth Estries / GhostEmperor)
+Source: US Government / CISA / FBI Joint Advisory, December 2024
+Classification: TLP:WHITE (public disclosure)
+
+ACTOR OVERVIEW
+==============
+Salt Typhoon (also tracked as Earth Estries, FamousSparrow, GhostEmperor, UNC2286)
+is a Chinese state-sponsored threat actor assessed to be affiliated with China's
+Ministry of State Security (MSS). The group conducted one of the most significant
+telecommunications espionage campaigns ever disclosed against the United States,
+compromising at least eight major US telecom providers and dozens of countries' carriers.
+
+The primary objective was intelligence collection: the actor accessed lawful intercept
+(CALEA) systems used by the FBI and other federal agencies, and monitored the
+communications of senior US government officials, political figures, and individuals
+of intelligence interest to China.
+
+INITIAL ACCESS
+==============
+Multiple initial access vectors were observed across victims:
+
+1. Exploitation of Ivanti Connect Secure VPN appliances:
+   CVE-2023-46805 (authentication bypass, CVSS 8.2)
+   CVE-2024-21887 (command injection, CVSS 9.1)
+   CVE-2024-21893 (SSRF, CVSS 8.2)
+   These were chained for unauthenticated remote code execution.
+
+2. Exploitation of Cisco IOS XE:
+   CVE-2023-20198 (privilege escalation, CVSS 10.0)
+   CVE-2023-20273 (web UI command injection, CVSS 7.2)
+   Used to implant backdoors on internet-facing Cisco infrastructure.
+
+3. Exploitation of unpatched Microsoft Exchange servers:
+   ProxyLogon / ProxyShell chains in older Exchange deployments.
+
+TARGET: LAWFUL INTERCEPT SYSTEMS
+==================================
+The most significant aspect of this campaign was actor access to carrier
+CALEA (Communications Assistance for Law Enforcement Act) infrastructure.
+CALEA systems are legally mandated backdoors in US telecom networks that allow
+authorized law enforcement to intercept communications with a court order.
+
+The actor accessed these systems to:
+  - Identify individuals under active US federal surveillance
+  - Monitor voice, SMS, and metadata for targets of interest
+  - Potentially identify US intelligence sources and methods
+
+This represents a severe counterintelligence impact.
+
+MALWARE FAMILIES
+================
+1. GhostSpider — custom backdoor
+   - Modular architecture, each module loaded on demand from C2
+   - Communicated over HTTPS with legitimate-looking headers
+   - SHA256: 3f1d2a8c5e7b9f0a4d6e2c8b1f5a3e7d9b0c2f4a6e8d1b3c5f7a9e0b2d4c6f8
+
+2. SnappyBee (Demodex) — rootkit
+   - Windows kernel rootkit using legitimate signed drivers
+   - Hid malicious processes, files, and registry keys from EDR
+   - SHA256: 9a2b4c6d8e0f1a3b5c7d9e1f3a5b7c9d1e3f5a7b9c1d3e5f7a9b1c3d5e7f9a1
+
+3. SparrowDoor — C2 implant (shared with FamousSparrow)
+   SHA256: 2e4f6a8c0d2b4e6f8a0c2d4f6a8c0e2b4f6a8d0c2e4b6f8a0c2e4d6b8f0a2c4
+
+4. CrowDoor — lateral movement tool (new, first observed 2024)
+   SHA256: b5d7f9a1c3e5b7d9f1a3c5e7b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5
+
+C2 INFRASTRUCTURE
+=================
+The actor used a multi-hop relay network:
+  - 27.102.113.57   (confirmed C2, Hong Kong-based VPS)
+  - 43.254.132.88   (C2 relay, Singapore)
+  - 103.27.108.44   (C2 relay, Malaysia)
+  - 167.88.177.151  (exfiltration endpoint, Netherlands)
+
+C2 domains:
+  update.windowsdefender-telemetry.com
+  cdn.microsoft-security-patch.net
+  telemetry.office365-cdn.org
+
+All domains use Let's Encrypt certificates and mimic Microsoft service names
+to blend with legitimate network traffic.
+
+PERSISTENCE AND LATERAL MOVEMENT
+==================================
+  - Deployed web shells on Exchange and IIS servers for persistent access:
+    SHA256 of ASPX shell: 7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b7d9f1a3c5e7b9d1f3a5c7e9b1d3f5a7c9
+  - Used compromised admin credentials to authenticate to telco management systems
+  - Moved laterally via legitimate telco management protocols (SNMP, SS7, RADIUS)
+  - Accessed network tap infrastructure used for lawful intercept
+  - Maintained persistence for 1–3 years undetected at some victims
+
+EXFILTRATION
+============
+  - Targeted data: call records, SMS metadata, voice intercept audio
+  - Volume: tens of millions of call records from multiple carriers
+  - Method: compressed archives exfiltrated via C2 channel
+  - Secondary path: direct operator-level access to telco infrastructure
+    bypassed need for traditional exfil — data accessed in-place
+
+DETECTION INDICATORS
+======================
+Process/command indicators:
+  - ntdsutil.exe usage on non-DC systems
+  - wmic.exe spawning unusual child processes on servers
+  - Unexpected PowerShell remoting (WinRM) to telecom management hosts
+  - IIS/Exchange worker process spawning cmd.exe or PowerShell
+
+Network indicators:
+  - Outbound HTTPS to domains registered within 30 days
+  - Long-duration low-bandwidth beacon connections (60–300 second intervals)
+  - SNMP and RADIUS authentication from unexpected source hosts
+
+MITIGATIONS
+===========
+  - Emergency patch: Ivanti CVE-2023-46805, CVE-2024-21887, CVE-2024-21893
+  - Emergency patch: Cisco IOS XE CVE-2023-20198, CVE-2023-20273
+  - Audit all accounts with access to CALEA / lawful intercept systems
+  - Segment carrier management networks from corporate IT
+  - Deploy integrity monitoring on Exchange / IIS web roots
+  - Implement outbound TLS inspection on carrier management networks
+  - Review all service accounts for unexpected authentication patterns
+
+UNCERTAINTIES
+=============
+  - Full scope of victim carriers has not been publicly disclosed; likely understated
+  - GhostSpider modular architecture means observed capabilities may not reflect full toolkit
+  - Actor may retain access via undisclosed persistence mechanisms
+  - Impact to ongoing law enforcement operations has not been publicly assessed
+  - Attribution is high-confidence but MSS unit affiliation not confirmed publicly

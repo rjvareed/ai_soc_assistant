@@ -1,0 +1,98 @@
+THREAT INTELLIGENCE BULLETIN
+Subject: BlackMatter Variant Targeting Healthcare — Active Campaign
+Classification: TLP:AMBER
+Date: 2026-06-10
+
+OVERVIEW
+========
+A ransomware campaign targeting healthcare and pharmaceutical organizations has
+been observed across three confirmed victims in North America and Europe.
+The actor appears to be a BlackMatter affiliate operating independently following
+that group's shutdown. Ransom demands range from $2M to $8M USD.
+
+INITIAL ACCESS VECTOR
+=====================
+All three victims were compromised via RDP brute-force attacks against
+internet-exposed Remote Desktop servers. The actors used credential stuffing
+lists compiled from prior healthcare-sector breaches.
+
+Observed attacker source IPs:
+  - 194.165.16.78
+  - 194.165.16.79
+  - 194.165.16.80
+  (Three consecutive IPs — likely same /24 VPS block)
+  - 45.9.74.33 (separate campaign, same actor per infrastructure overlap)
+
+TOOLS AND TECHNIQUES
+====================
+Post-compromise, the actor deployed the following tools:
+
+1. Cobalt Strike beacon
+   SHA256: 7dc7a2a68c2d903a2c1aa2aa8d849abb7d2d33c20f4afecb1cab18e33bb24399
+   C2 profile: jquery-c2.profile (publicly known malleable C2 profile)
+   C2 servers:
+     - https://104.21.48.11/jquery-3.3.1.slim.min.js
+     - https://api.businessanalytics-cdn.com/cdn/assets/
+
+2. ADFind (Active Directory enumeration)
+   SHA256: c92c158d7c37fea795114fa6491fe5f145ad2f8c08776b18ae79db811e8e36a3
+   Executed as: adfind.exe -f objectcategory=computer -csv
+
+3. Mimikatz (credential harvesting)
+   SHA256: 912018ab3c6b16b39ee84f17745ff0c3a96f5d5e9b7a8a5e5e7e7f00de1e36c
+   Executed via: rundll32.exe, loading mimilib.dll
+
+4. PsExec for lateral movement to 47 systems over 36 hours
+
+5. Custom ransomware binary:
+   Name: svc_update.exe
+   SHA256: e76b3c3d3f4c1c9b6e8a2f1d5c0b7a9e4f2d8c1a6b3e7f0d9c2b5a8e1f4c7b0
+   Extensions encrypted: 5000+ file types, drops ransom note as !!README!!.txt
+   Note content: "Your network has been compromised by a professional team..."
+   Contact: hxxps://ransom-portal.onion (Tor hidden service)
+
+DEFENSE EVASION
+===============
+- Disabled Windows Defender on all compromised hosts:
+  Set-MpPreference -DisableRealtimeMonitoring $true
+  Set-MpPreference -DisableIOAVProtection $true
+- Deleted volume shadow copies:
+  vssadmin.exe delete shadows /all /quiet
+  wmic shadowcopy delete
+- Cleared Windows event logs:
+  for /F "tokens=*" %1 in ('wevtutil.exe el') DO wevtutil.exe cl "%1"
+- Ransomware binary signed with stolen code-signing certificate:
+  Subject: CN=DigiSoft Solutions Ltd, O=DigiSoft Solutions Ltd, C=RO
+
+EXFILTRATION BEFORE ENCRYPTION
+================================
+Data was exfiltrated to Mega.nz and a private S3 bucket before encryption:
+  Mega upload link: hxxps://mega.nz/file/aBcDeFgH (taken down)
+  Estimated data: 780 GB patient records, financial data, HR records
+
+VICTIM PROFILE
+==============
+- Victim A: Regional hospital system, 12 sites, ~400 servers encrypted
+- Victim B: Pharmaceutical research firm, research data targeted
+- Victim C: Health insurance provider (partial compromise — detected early)
+
+IOC SUMMARY
+===========
+Hashes:
+  7dc7a2a68c2d903a2c1aa2aa8d849abb7d2d33c20f4afecb1cab18e33bb24399  (Cobalt Strike)
+  c92c158d7c37fea795114fa6491fe5f145ad2f8c08776b18ae79db811e8e36a3  (ADFind)
+  912018ab3c6b16b39ee84f17745ff0c3a96f5d5e9b7a8a5e5e7e7f00de1e36c  (Mimikatz)
+  e76b3c3d3f4c1c9b6e8a2f1d5c0b7a9e4f2d8c1a6b3e7f0d9c2b5a8e1f4c7b0  (Ransomware)
+
+Domains:
+  api.businessanalytics-cdn.com
+  ransom-portal.onion
+
+IPs:
+  194.165.16.78
+  194.165.16.79
+  194.165.16.80
+  45.9.74.33
+  104.21.48.11
+
+Actor email (ransom negotiation): contact@proton-secure.me

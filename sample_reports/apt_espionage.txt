@@ -1,0 +1,100 @@
+INTELLIGENCE REPORT — APT29 / Cozy Bear Activity
+Classification: TLP:AMBER+STRICT
+Date: 2026-06-01
+Source: ISAC member submission + OSINT correlation
+
+EXECUTIVE OVERVIEW
+==================
+Intelligence gathered from multiple ISAC members suggests renewed activity
+consistent with APT29 (Cozy Bear, Midnight Blizzard) targeting foreign
+policy think tanks and government contractors. The campaign uses novel
+evasion techniques including abuse of legitimate Microsoft Graph API endpoints
+for C2 communication.
+
+INITIAL COMPROMISE
+==================
+Spearphishing emails were sent to targeted individuals with PDF lures:
+  Subject: "Confidential: Q3 Foreign Policy Assessment — For Your Eyes Only"
+  Sender (spoofed): policy-brief@brookings-research.org
+
+The PDF contained a link to a credential-harvesting page:
+  hxxps://microsoft-sso-secure.com/oauth2/authorize?client_id=...
+
+Upon credential entry, the user's Office 365 token was captured and used
+to register a new OAuth application with Mail.Read and Files.ReadWrite
+permissions — allowing persistent access without requiring user interaction.
+
+PERSISTENCE MECHANISM
+=====================
+A novel persistence method was observed: the actor registered a malicious
+OAuth app named "OneDrive Sync Helper" in the victim's Azure AD tenant.
+This technique (abusing OAuth apps for persistence) requires no malware on
+disk and survives credential resets unless the OAuth app is explicitly revoked.
+
+TOOLING
+=======
+On three hosts where the actor achieved code execution, the following was found:
+
+1. WINELOADER variant (updated)
+   SHA256: 9f4c2a8e1b5d7c3f6a0e9d2b5f8c1a4e7b0d3f6c9a2e5b8d1f4c7a0e3b6d9f2
+   Disguised as: C:\Program Files (x86)\Common Files\Microsoft\OneDrive\onedrvsvc.exe
+
+2. C2 communication over Microsoft Graph API:
+   The implant used the victim's own OAuth token to read/write C2 instructions
+   via OneDrive files at /me/drive/root:/AppData/.sync_state.tmp
+   This traffic is indistinguishable from legitimate OneDrive sync.
+   No external C2 IPs observed on C2 channel — uses graph.microsoft.com.
+
+3. Additional dropper delivered via OneDrive:
+   SHA256: 1a3c5e7b9d2f4a6c8e0b3d5f7a9c2e4b6d8f0a2c4e6b8d0f2a4c6e8b0d2f4a6
+   MD5:    d8e8fca2dc0f896fd7cb4cb0031ba249
+
+4. Keylogger module:
+   Logged keystrokes to %APPDATA%\Microsoft\Windows\Themes\.cache
+   SHA1:   2fd4e1c67a2d28fce3c0c273a670e6c0b62a50c7
+
+LATERAL MOVEMENT
+================
+Once inside, the actor moved laterally using:
+- Pass-the-Hash with harvested NTLM hashes
+- WMI remote execution (no PsExec — avoids detection)
+- Legitimate Azure AD federation trust abuse to access cross-tenant resources
+
+Exfiltration was slow and low-volume (anti-detection):
+- ~500 MB over 6 weeks via OneDrive sync to actor-controlled tenant
+- Target data: strategic policy documents, personnel lists, contractor databases
+
+INDICATORS
+==========
+Domains:
+  microsoft-sso-secure.com         (credential harvesting)
+  onedrive-auth-validate.net       (OAuth token phishing)
+  brookings-research.org           (spoofed sender domain — legitimate org, do not block)
+
+Hashes:
+  9f4c2a8e1b5d7c3f6a0e9d2b5f8c1a4e7b0d3f6c9a2e5b8d1f4c7a0e3b6d9f2
+  1a3c5e7b9d2f4a6c8e0b3d5f7a9c2e4b6d8f0a2c4e6b8d0f2a4c6e8b0d2f4a6
+  d8e8fca2dc0f896fd7cb4cb0031ba249
+  2fd4e1c67a2d28fce3c0c273a670e6c0b62a50c7
+
+Email addresses (actor-controlled):
+  noreply-docshare@microsoft-sso-secure.com
+  auth-verify@onedrive-auth-validate.net
+
+UNCERTAINTIES
+=============
+- Attribution to APT29 is moderate-confidence; TTPs match but no definitive link.
+- The OneDrive C2 technique has not previously been publicly reported — may be novel.
+- The OAuth app persistence technique means IOC-based detection is insufficient;
+  audit of registered OAuth apps across the tenant is required.
+- brookings-research.org is a legitimate domain used for spoofing — do NOT block or
+  flag as malicious.
+
+DETECTION NOTES
+===============
+Traditional IOC-based detection will miss the C2 channel entirely (graph.microsoft.com
+is almost certainly whitelisted). Recommended detection focus:
+- Audit OAuth app registrations for newly added apps with Mail.Read / Files.ReadWrite
+- Alert on new OAuth consent grants by privileged users
+- Monitor for .sync_state.tmp or similar hidden files in OneDrive paths
+- Hunt for WMI remote execution from unexpected source hosts
